@@ -5,14 +5,15 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense
+import os
 
-# App configuration
+# Configure the app
 st.set_page_config(page_title="Trading Strategy with ML Forecasting", layout="wide")
 st.title("Trading Strategy with ML Forecasting")
 
-# App Description
+# Description of what the app does
 st.markdown(
     """
     **What does this app do?**
@@ -20,12 +21,12 @@ st.markdown(
     This app does two main things:
     
     1. **Learns from the Past:**  
-       It fetches historical stock prices (for example, for AAPL) and uses a machine learning model (an LSTM) to learn the patterns in those prices.
+       It downloads historical stock prices (for example, for AAPL) and trains a machine learning model (an LSTM) to learn the patterns in those prices.
     
     2. **Predicts the Future:**  
-       After training, the app forecasts future stock prices for a set number of days. It then shows you a graph that compares the past prices with the model’s predictions, giving you an idea of where the stock might be headed.
+       After training, the app forecasts future stock prices for a set number of days. It then shows you a graph that compares historical prices (blue line) with predicted future prices (red dashed line).
     
-    In short, the app helps you see how a stock has behaved historically and uses that information to predict its future trend.
+    In short, the app helps you see how a stock has behaved in the past and uses that information to forecast its future trend.
     """
 )
 
@@ -37,20 +38,32 @@ end_date = st.sidebar.date_input("End Date", datetime.today())
 forecast_days = st.sidebar.number_input("Forecast Days", min_value=1, value=30)
 run_forecast = st.sidebar.button("Run Forecast")
 
-# Only run when the user clicks "Run Forecast"
-if run_forecast:
-    @st.cache_data(ttl=3600)
-    def get_data(ticker, start, end):
-        """Fetch historical data for a given ticker and date range."""
-        data = yf.download(ticker, start=start, end=end)
-        data.reset_index(inplace=True)
-        if pd.api.types.is_datetime64tz_dtype(data['Date']):
-            data['Date'] = data['Date'].dt.tz_localize(None)
-        return data
+# Define a filename for saving/loading the model (per ticker)
+model_filename = f"lstm_model_{ticker}.h5"
 
+@st.cache_data(ttl=3600)
+def get_data(ticker, start, end):
+    """Fetch historical data for a given ticker and date range."""
+    data = yf.download(ticker, start=start, end=end)
+    data.reset_index(inplace=True)
+    # Remove timezone info if present
+    if pd.api.types.is_datetime64tz_dtype(data['Date']):
+        data['Date'] = data['Date'].dt.tz_localize(None)
+    return data
+
+def create_sequences(data, seq_length=60):
+    """Create sequences for LSTM training."""
+    X, y = [], []
+    for i in range(seq_length, len(data)):
+        X.append(data[i - seq_length:i, 0])
+        y.append(data[i, 0])
+    return np.array(X), np.array(y)
+
+if run_forecast:
+    # Fetch historical data
     data_load_state = st.text("Fetching historical data...")
     data = get_data(ticker, start_date, end_date)
-    data_load_state.text("")
+    data_load_state.text("Historical data loaded.")
 
     if data.empty:
         st.error("No data fetched. Please check the ticker and date range.")
@@ -58,56 +71,37 @@ if run_forecast:
         st.subheader(f"Historical Data for {ticker}")
         st.write(data.tail())
 
-        # Prepare data for LSTM using only the 'Close' prices.
+        # Prepare data for LSTM (using the 'Close' prices)
         df = data[['Date', 'Close']].copy()
         df.set_index('Date', inplace=True)
 
-        # Normalize the data
+        # Normalize the closing price data
         scaler = MinMaxScaler(feature_range=(0, 1))
         scaled_data = scaler.fit_transform(df)
 
-        # Create sequences for training
-        def create_sequences(data, seq_length=60):
-            X, y = [], []
-            for i in range(seq_length, len(data)):
-                X.append(data[i - seq_length:i, 0])
-                y.append(data[i, 0])
-            return np.array(X), np.array(y)
-
-        seq_length = 60  # Look-back period (days)
+        seq_length = 60  # Look-back period in days; adjust if needed.
         X, y = create_sequences(scaled_data, seq_length)
         X = X.reshape((X.shape[0], X.shape[1], 1))
 
-        # Build and compile the LSTM model
+        # Build the LSTM model architecture
         model = Sequential()
         model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
         model.add(LSTM(50))
         model.add(Dense(1))
         model.compile(optimizer='adam', loss='mean_squared_error')
 
-        st.write("Training the LSTM model... (this may take a few minutes)")
-        # Increase epochs to help the model learn the trend
-        history = model.fit(X, y, epochs=50, batch_size=32, verbose=0)
-        st.write("Training complete.")
+        # Check if a pre-trained model exists; if not, train a new one.
+        if os.path.exists(model_filename):
+            st.write("Loading pre-trained model...")
+            model = load_model(model_filename)
+        else:
+            st.write("Training the LSTM model... (this may take a few minutes)")
+            # Increase epochs to help capture a trend. Adjust epochs as needed.
+            model.fit(X, y, epochs=20, batch_size=32, verbose=0)
+            model.save(model_filename)
+            st.write("Training complete and model saved.")
 
-        # Optionally, display the training loss curve
-        loss_fig = go.Figure()
-        loss_fig.add_trace(go.Scatter(
-            x=list(range(len(history.history['loss']))),
-            y=history.history['loss'],
-            mode='lines',
-            name='Training Loss',
-            line=dict(color='blue', width=2)
-        ))
-        loss_fig.update_layout(
-            title="Training Loss Over Epochs",
-            xaxis_title="Epoch",
-            yaxis_title="Loss",
-            template="plotly_white"
-        )
-        st.plotly_chart(loss_fig, use_container_width=True)
-
-        # Forecast future prices using the trained LSTM model.
+        # Forecast future prices using the trained model.
         last_sequence = scaled_data[-seq_length:]
         predictions = []
         current_sequence = last_sequence.copy()
@@ -115,14 +109,15 @@ if run_forecast:
         for _ in range(forecast_days):
             pred = model.predict(current_sequence.reshape(1, seq_length, 1))[0, 0]
             predictions.append(pred)
+            # Slide the window: remove the first value and add the prediction at the end.
             current_sequence = np.append(current_sequence[1:], [[pred]], axis=0)
 
-        # Convert predictions back to original scale.
+        # Convert the predictions back to the original price scale.
         predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
         last_date = df.index[-1]
         forecast_dates = pd.date_range(last_date + timedelta(days=1), periods=forecast_days)
 
-        # Plot historical and predicted prices.
+        # Plot historical and forecasted prices.
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=df.index, y=df['Close'], mode='lines', name='Historical Close Price',
@@ -142,7 +137,7 @@ if run_forecast:
             f"""
             **Explanation:**
             - The LSTM model is trained on historical closing prices.
-            - It then predicts the next {forecast_days} days of prices based on the patterns it has learned.
-            - The forecast is shown as a dashed red line compared to the blue line of historical prices.
+            - It then predicts the next {forecast_days} days of prices based on learned patterns.
+            - The forecast is shown as a red dashed line compared to the historical prices (blue line).
             """
         )
