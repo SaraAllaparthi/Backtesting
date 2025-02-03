@@ -13,9 +13,14 @@ st.markdown(
     """
     **What does this app do?**
 
-    - **Learns from Historical Data:** It downloads two years of historical stock prices for a given ticker.
-    - **Predicts Future Prices:** It builds a time series model (using Prophet) to forecast future prices.
-    - **Trend Analysis:** It compares the ML model’s predicted prices with the actual share prices over a test period.
+    - **Learns from Historical Data:**  
+      It downloads two years of historical stock prices for a given ticker.
+    
+    - **Predicts Future Prices:**  
+      It builds a time series model (using Prophet) to forecast future prices.
+    
+    - **Trend Analysis:**  
+      It compares the model’s predicted prices with the actual share prices over the test period.
     
     This helps you understand the stock’s trend and see how well the model could predict its behavior.
     """
@@ -25,7 +30,7 @@ st.markdown(
 st.sidebar.header("Input Parameters")
 ticker = st.sidebar.text_input("Stock Ticker", "AAPL")
 
-# Use a fixed two-year period for historical data
+# Fixed two-year period for historical data
 period_years = 2
 end_date = datetime.today()
 start_date = end_date - timedelta(days=period_years * 365)
@@ -46,8 +51,12 @@ else:
     st.subheader(f"Historical Data for {ticker}")
     st.write(data.tail())
 
-    # Prepare data for Prophet: Prophet expects columns "ds" (date) and "y" (value)
+    # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
+    
+    # Ensure the 'y' column is numeric and drop any rows with non-numeric values
+    df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    df = df.dropna(subset=['y'])
 
     # Split data into training and testing portions (80% train, 20% test)
     split_idx = int(len(df) * 0.8)
@@ -96,6 +105,6 @@ else:
         """
         - **Actual Price Trend:** The blue line shows the real stock prices over the past two years.
         - **Predicted Price Trend:** The red dashed line shows the forecasted prices for the test period.
-        - By comparing these trends, you can see how well the model would have predicted the stock’s behavior.
+        - By comparing these trends, you can see how well the model predicted the stock’s behavior.
         """
     )
