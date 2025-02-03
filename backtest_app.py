@@ -48,8 +48,9 @@ else:
     # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Ensure the 'y' column is numeric
-    df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    # Ensure the 'y' column is numeric.
+    # We "squeeze" the column to ensure it's a Series before converting.
+    df['y'] = pd.to_numeric(df['y'].squeeze(), errors='coerce')
     df = df.dropna(subset=['y'])
 
     # Split data into training (80%) and testing (20%) portions
@@ -57,15 +58,15 @@ else:
     train_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy()
 
-    # Build and fit the Prophet model on the training data
+    # Create and fit the Prophet model on training data
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
     model.fit(train_df)
 
-    # Forecast for the entire period so we can extract predictions for the test period
+    # Forecast for the entire period (so we can get predictions for the test period)
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
     forecast = model.predict(future)
 
-    # Extract the forecast corresponding to the test period
+    # Get the forecasted values corresponding to the test period
     forecast_test = forecast[['ds', 'yhat']].iloc[split_idx:].reset_index(drop=True)
     test_df = test_df.reset_index(drop=True)
     comparison = pd.concat([test_df, forecast_test['yhat']], axis=1)
