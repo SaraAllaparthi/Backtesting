@@ -8,16 +8,16 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
-st.set_page_config(page_title="ML Enhanced Trading Strategy", layout="wide")
+st.set_page_config(page_title="Trading Strategy with ML Forecasting", layout="wide")
 st.title("Trading Strategy with ML Forecasting")
 
-st.sidebar.header("Parameters")
+st.sidebar.header("Forecast Parameters")
 ticker = st.sidebar.text_input("Ticker", "AAPL")
 start_date = st.sidebar.date_input("Start Date", datetime.today() - timedelta(days=5*365))
 end_date = st.sidebar.date_input("End Date", datetime.today())
 forecast_days = st.sidebar.number_input("Forecast Days", min_value=1, value=30)
 
-# Fetch data
+@st.cache_data(ttl=3600)
 def get_data(ticker, start, end):
     data = yf.download(ticker, start=start, end=end)
     data.reset_index(inplace=True)
@@ -27,15 +27,15 @@ def get_data(ticker, start, end):
 
 data = get_data(ticker, start_date, end_date)
 if data.empty:
-    st.error("No data fetched. Check the ticker or date range.")
+    st.error("No data fetched. Please check the ticker and date range.")
 else:
     st.subheader(f"Historical Data for {ticker}")
     st.write(data.tail())
 
-    # Prepare data for LSTM: we'll use only 'Close' prices
-    df = data[['Date', 'Close']]
+    # Prepare data for LSTM using only the 'Close' prices.
+    df = data[['Date', 'Close']].copy()
     df.set_index('Date', inplace=True)
-    
+
     # Normalize the data
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(df)
@@ -44,53 +44,72 @@ else:
     def create_sequences(data, seq_length=60):
         X, y = [], []
         for i in range(seq_length, len(data)):
-            X.append(data[i-seq_length:i, 0])
+            X.append(data[i - seq_length:i, 0])
             y.append(data[i, 0])
         return np.array(X), np.array(y)
 
-    seq_length = 60  # Look back 60 days
+    seq_length = 60  # Try adjusting this if needed.
     X, y = create_sequences(scaled_data, seq_length)
-
-    # Reshape data for LSTM: (samples, time steps, features)
     X = X.reshape((X.shape[0], X.shape[1], 1))
 
-    # Build a simple LSTM model
+    # Build and compile the LSTM model.
     model = Sequential()
     model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
     model.add(LSTM(50))
     model.add(Dense(1))
     model.compile(optimizer='adam', loss='mean_squared_error')
 
-    st.write("Training the LSTM model (this may take a while)...")
-    model.fit(X, y, epochs=10, batch_size=32, verbose=0)  # For demo purposes, we use 10 epochs
+    st.write("Training the LSTM model... (this may take a few minutes)")
+    # Increase epochs to give the model more time to learn the trend.
+    history = model.fit(X, y, epochs=50, batch_size=32, verbose=0)  # Increased epochs to 50
+    st.write("Training complete.")
 
-    # Forecast future prices
+    # Optionally, display the loss curve if you want to debug further:
+    loss_fig = go.Figure()
+    loss_fig.add_trace(go.Scatter(
+        x=list(range(len(history.history['loss']))),
+        y=history.history['loss'],
+        mode='lines',
+        name='Training Loss',
+        line=dict(color='blue', width=2)
+    ))
+    loss_fig.update_layout(title="Training Loss Over Epochs", xaxis_title="Epoch", yaxis_title="Loss")
+    st.plotly_chart(loss_fig, use_container_width=True)
+
+    # Forecast future prices using the trained LSTM model.
     last_sequence = scaled_data[-seq_length:]
     predictions = []
     current_sequence = last_sequence.copy()
 
     for _ in range(forecast_days):
-        pred = model.predict(current_sequence.reshape(1, seq_length, 1))[0,0]
+        # Predict the next value
+        pred = model.predict(current_sequence.reshape(1, seq_length, 1))[0, 0]
         predictions.append(pred)
+        # Append the prediction to the sequence and remove the first element.
         current_sequence = np.append(current_sequence[1:], [[pred]], axis=0)
 
-    # Convert predictions back to original scale
-    predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1,1))
+    # Inverse transform predictions to original scale.
+    predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
     last_date = df.index[-1]
     forecast_dates = pd.date_range(last_date + timedelta(days=1), periods=forecast_days)
 
-    # Plot historical and predicted prices
+    # Plot historical and predicted prices.
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', name='Historical Close Price'))
-    fig.add_trace(go.Scatter(x=forecast_dates, y=predicted_prices.flatten(), mode='lines', name='Predicted Price', line=dict(dash='dash', color='red')))
-    fig.update_layout(title=f"{ticker} Price Forecast", xaxis_title="Date", yaxis_title="Price")
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df['Close'], mode='lines', name='Historical Close Price',
+        line=dict(color='blue', width=2)))
+    fig.add_trace(go.Scatter(
+        x=forecast_dates, y=predicted_prices.flatten(), mode='lines', name='Predicted Price',
+        line=dict(dash='dash', color='red', width=2)))
+    fig.update_layout(title=f"{ticker} Price Forecast", xaxis_title="Date", yaxis_title="Price",
+                      template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(
-        """
+        f"""
         **Explanation:**
-        - The LSTM model is trained on the historical closing prices.
-        - It then predicts the next {} days of prices based on patterns it has learned.
-        - This forecast can be used alongside traditional backtesting to refine your investment strategy.
-        """.format(forecast_days)
+        - The LSTM model is trained on historical closing prices.
+        - It predicts the next {forecast_days} days of prices based on learned patterns.
+        - The forecast is plotted as a dashed red line, which you can compare with the historical trend.
+        """
     )
