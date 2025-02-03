@@ -44,36 +44,40 @@ if data.empty:
 else:
     st.subheader(f"Historical Data for {ticker}")
     st.write(data.tail())
-
-    # Prepare data for Prophet:
-    # Rename columns as required ("ds" for date, "y" for value)
-    df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Debug: Display the columns to ensure 'y' exists.
-    st.write("DataFrame columns after renaming:", df.columns.tolist())
+    # Debug: Display available columns
+    st.write("Available columns:", data.columns.tolist())
     
-    # Convert the 'y' column to numeric (using squeeze() to ensure it is 1-D)
-    try:
-        df['y'] = pd.to_numeric(df['y'].squeeze(), errors='coerce')
-    except Exception as e:
-        st.error(f"Error converting 'y' column to numeric: {e}")
-    
-    # Check if the 'y' column exists before dropping NaN values.
-    if 'y' in df.columns:
-        df = df.dropna(subset=['y'])
+    # Determine which column to use for prices
+    if 'Close' in data.columns:
+        price_col = 'Close'
+    elif 'Adj Close' in data.columns:
+        price_col = 'Adj Close'
     else:
-        st.error("Column 'y' not found in the data. Please check the input data.")
+        st.error("No 'Close' or 'Adj Close' column found in the data.")
+        st.stop()
     
+    # Prepare data for Prophet: rename columns as required ("ds" and "y")
+    df = data[['Date', price_col]].rename(columns={'Date': 'ds', price_col: 'y'})
+    
+    # Convert the 'y' column to numeric and drop rows with missing values
+    df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    df = df.dropna(subset=['y'])
+    
+    # Debug: Verify columns after processing
+    st.write("Columns after renaming and cleaning:", df.columns.tolist())
+    st.write("Sample data:", df.head())
+
     # Split data into training (80%) and testing (20%) portions
     split_idx = int(len(df) * 0.8)
     train_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy()
 
-    # Build and fit the Prophet model on the training data
+    # Build and fit the Prophet model on training data
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
     model.fit(train_df)
 
-    # Forecast for the entire period (so that we can extract predictions for the test period)
+    # Forecast for the entire period (so we get predictions for the test period)
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
     forecast = model.predict(future)
 
