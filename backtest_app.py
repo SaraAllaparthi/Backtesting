@@ -54,9 +54,8 @@ else:
     # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Convert the 'y' column to numeric:
-    # Using list() to ensure it's a plain 1-D list before conversion.
-    df['y'] = pd.to_numeric(list(df['y']), errors='coerce')
+    # Convert each element in the 'y' column to a numeric value.
+    df['y'] = df['y'].apply(lambda x: pd.to_numeric(x, errors='coerce'))
     df = df.dropna(subset=['y'])
 
     # Split data into training and testing portions (80% train, 20% test)
@@ -68,7 +67,7 @@ else:
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
     model.fit(train_df)
 
-    # Forecast over the entire period (so that we get predictions for the test period)
+    # Forecast over the entire period (to cover the test period)
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
     forecast = model.predict(future)
 
