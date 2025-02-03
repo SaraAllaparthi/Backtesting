@@ -54,8 +54,9 @@ else:
     # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Convert the 'y' column to numeric using a list (ensuring it's a 1-D input)
-    df['y'] = pd.to_numeric(df['y'].tolist(), errors='coerce')
+    # Convert the 'y' column to numeric:
+    # Using list() to ensure it's a plain 1-D list before conversion.
+    df['y'] = pd.to_numeric(list(df['y']), errors='coerce')
     df = df.dropna(subset=['y'])
 
     # Split data into training and testing portions (80% train, 20% test)
