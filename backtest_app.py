@@ -45,33 +45,44 @@ else:
     st.subheader(f"Historical Data for {ticker}")
     st.write(data.tail())
 
-    # Prepare data for Prophet: rename columns as required ("ds" and "y")
+    # Prepare data for Prophet:
+    # Rename columns as required ("ds" for date, "y" for value)
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Ensure the 'y' column is numeric.
-    # We "squeeze" the column to ensure it's a Series before converting.
-    df['y'] = pd.to_numeric(df['y'].squeeze(), errors='coerce')
-    df = df.dropna(subset=['y'])
-
+    # Debug: Display the columns to ensure 'y' exists.
+    st.write("DataFrame columns after renaming:", df.columns.tolist())
+    
+    # Convert the 'y' column to numeric (using squeeze() to ensure it is 1-D)
+    try:
+        df['y'] = pd.to_numeric(df['y'].squeeze(), errors='coerce')
+    except Exception as e:
+        st.error(f"Error converting 'y' column to numeric: {e}")
+    
+    # Check if the 'y' column exists before dropping NaN values.
+    if 'y' in df.columns:
+        df = df.dropna(subset=['y'])
+    else:
+        st.error("Column 'y' not found in the data. Please check the input data.")
+    
     # Split data into training (80%) and testing (20%) portions
     split_idx = int(len(df) * 0.8)
     train_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy()
 
-    # Create and fit the Prophet model on training data
+    # Build and fit the Prophet model on the training data
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
     model.fit(train_df)
 
-    # Forecast for the entire period (so we can get predictions for the test period)
+    # Forecast for the entire period (so that we can extract predictions for the test period)
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
     forecast = model.predict(future)
 
-    # Get the forecasted values corresponding to the test period
+    # Extract forecasted values corresponding to the test period
     forecast_test = forecast[['ds', 'yhat']].iloc[split_idx:].reset_index(drop=True)
     test_df = test_df.reset_index(drop=True)
     comparison = pd.concat([test_df, forecast_test['yhat']], axis=1)
 
-    # Plot actual vs predicted prices for the test period using Plotly
+    # Plot actual vs. predicted prices for the test period using Plotly
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=comparison['ds'],
