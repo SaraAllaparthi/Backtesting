@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 # Dashboard Configuration
 # -------------------------
 st.set_page_config(page_title="Predictive Analytics & Investment Forecasting", layout="wide")
-
-# Dashboard Header (using HTML for custom styling)
 st.markdown(
     """
     <h1 style="text-align: center; color: #4F8BF9;">Predictive Analytics & Investment Forecasting</h1>
@@ -23,9 +21,7 @@ st.markdown(
 # Sidebar Inputs
 # -------------------------
 st.sidebar.markdown("## Input Parameters")
-
 ticker = st.sidebar.text_input("Stock Ticker", "AAPL")
-# Let user choose the data period (in years) via slider.
 period_years = st.sidebar.slider("Data Period (Years)", min_value=1, max_value=5, value=2)
 forecast_days = st.sidebar.number_input("Forecast Days", min_value=1, value=30)
 
@@ -50,14 +46,12 @@ if data.empty:
 # Display a preview of the data
 st.subheader(f"Historical Data for {ticker}")
 st.write(data.tail())
-
-# Debug: Show available columns
 st.write("**Available columns:**", data.columns.tolist())
 
 # -------------------------
 # Data Preparation
 # -------------------------
-# Use 'Close' if available; otherwise use 'Adj Close'
+# Determine which column to use for prices
 if 'Close' in data.columns:
     price_col = 'Close'
 elif 'Adj Close' in data.columns:
@@ -66,9 +60,17 @@ else:
     st.error("No 'Close' or 'Adj Close' column found in the data.")
     st.stop()
 
-# Prepare data for Prophet: rename columns ("ds" for dates, "y" for values)
+# Prepare data for Prophet: rename columns ("ds" for date, "y" for price)
 df = data[['Date', price_col]].rename(columns={'Date': 'ds', price_col: 'y'})
-df['y'] = pd.to_numeric(df['y'], errors='coerce')
+
+# Use a custom conversion function to ensure we get float values
+def safe_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+df['y'] = df['y'].apply(safe_float)
 df = df.dropna(subset=['y'])
 
 st.markdown("### Data Prepared for Forecasting")
@@ -86,7 +88,7 @@ test_df = df.iloc[split_idx:].copy()
 model = Prophet(daily_seasonality=False, yearly_seasonality=True)
 model.fit(train_df)
 
-# Forecast for the entire period (so that we capture the test period)
+# Forecast for the entire period (this ensures predictions for the test period)
 future = model.make_future_dataframe(periods=len(test_df), freq='D')
 forecast = model.predict(future)
 
@@ -125,9 +127,8 @@ st.plotly_chart(fig, use_container_width=True)
 st.markdown("### Trend Analysis")
 st.markdown(
     """
-    - **Actual Price Trend:** The blue line represents the real historical stock prices.
-    - **Predicted Price Trend:** The red dashed line shows the forecasted prices for the test period.
-    
-    Compare these trends to evaluate how well the model is capturing the stock's behavior.
+    - **Actual Price Trend:** The blue line shows the real historical stock prices.
+    - **Predicted Price Trend:** The red dashed line shows the forecasted prices during the test period.
+    - Compare these trends to assess how well the model predicts future price movements.
     """
 )
