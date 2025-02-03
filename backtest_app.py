@@ -6,23 +6,17 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # Configure the app
-st.set_page_config(page_title="Predictive Analytics with Time Series", layout="wide")
-st.title("Predictive Analytics with Time Series")
+st.set_page_config(page_title="Predictive Analytics & Investment Forecasting", layout="wide")
+st.title("Predictive Analytics & Investment Forecasting")
 
 st.markdown(
     """
-    **What does this app do?**
-
-    - **Learns from Historical Data:**  
-      It downloads two years of historical stock prices for a given ticker.
+    ### What This App Does
+    - **Historical Analysis:** Downloads two years of historical stock prices for a given ticker.
+    - **Forecasting:** Uses the Prophet model to forecast future prices based on historical trends.
+    - **Trend Comparison:** Compares actual prices (blue line) with predicted prices (red dashed line) for the test period.
     
-    - **Predicts Future Prices:**  
-      It builds a time series model (using Prophet) to forecast future prices.
-    
-    - **Trend Analysis:**  
-      It compares the model’s predicted prices with the actual share prices over the test period.
-    
-    This helps you understand the stock’s trend and see how well the model could predict its behavior.
+    This helps investors understand past trends and see how well the model forecasts future price movements.
     """
 )
 
@@ -54,29 +48,29 @@ else:
     # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
     
-    # Convert each element in the 'y' column to a numeric value.
-    df['y'] = df['y'].apply(lambda x: pd.to_numeric(x, errors='coerce'))
+    # Ensure the 'y' column is numeric
+    df['y'] = pd.to_numeric(df['y'], errors='coerce')
     df = df.dropna(subset=['y'])
 
-    # Split data into training and testing portions (80% train, 20% test)
+    # Split data into training (80%) and testing (20%) portions
     split_idx = int(len(df) * 0.8)
     train_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy()
 
-    # Create and fit the Prophet model on training data
+    # Build and fit the Prophet model on the training data
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
     model.fit(train_df)
 
-    # Forecast over the entire period (to cover the test period)
+    # Forecast for the entire period so we can extract predictions for the test period
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
     forecast = model.predict(future)
 
-    # Get the forecasted values corresponding to the test period
+    # Extract the forecast corresponding to the test period
     forecast_test = forecast[['ds', 'yhat']].iloc[split_idx:].reset_index(drop=True)
     test_df = test_df.reset_index(drop=True)
     comparison = pd.concat([test_df, forecast_test['yhat']], axis=1)
 
-    # Plot actual vs predicted prices for the test period
+    # Plot actual vs predicted prices for the test period using Plotly
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=comparison['ds'],
@@ -104,7 +98,7 @@ else:
     st.markdown(
         """
         - **Actual Price Trend:** The blue line shows the real stock prices over the past two years.
-        - **Predicted Price Trend:** The red dashed line shows the forecasted prices for the test period.
-        - By comparing these trends, you can see how well the model predicted the stock’s behavior.
+        - **Predicted Price Trend:** The red dashed line shows the forecasted prices during the test period.
+        - Comparing these trends helps you evaluate how well the model predicts future price movements.
         """
     )
