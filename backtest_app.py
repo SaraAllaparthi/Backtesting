@@ -60,13 +60,19 @@ else:
     # Prepare data for Prophet: rename columns as required ("ds" and "y")
     df = data[['Date', price_col]].rename(columns={'Date': 'ds', price_col: 'y'})
     
+    # Debug: Check before conversion
+    st.write("Data before numeric conversion:", df.head())
+    
     # Convert the 'y' column to numeric and drop rows with missing values
-    df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    try:
+        df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    except Exception as e:
+        st.error(f"Error converting 'y' to numeric: {e}")
     df = df.dropna(subset=['y'])
     
-    # Debug: Verify columns after processing
-    st.write("Columns after renaming and cleaning:", df.columns.tolist())
-    st.write("Sample data:", df.head())
+    # Debug: Verify columns after cleaning
+    st.write("Columns after cleaning:", df.columns.tolist())
+    st.write("Sample data after cleaning:", df.head())
 
     # Split data into training (80%) and testing (20%) portions
     split_idx = int(len(df) * 0.8)
@@ -75,7 +81,11 @@ else:
 
     # Build and fit the Prophet model on training data
     model = Prophet(daily_seasonality=False, yearly_seasonality=True)
-    model.fit(train_df)
+    try:
+        model.fit(train_df)
+    except Exception as e:
+        st.error(f"Error training Prophet model: {e}")
+        st.stop()
 
     # Forecast for the entire period (so we get predictions for the test period)
     future = model.make_future_dataframe(periods=len(test_df), freq='D')
@@ -86,7 +96,10 @@ else:
     test_df = test_df.reset_index(drop=True)
     comparison = pd.concat([test_df, forecast_test['yhat']], axis=1)
 
-    # Plot actual vs. predicted prices for the test period using Plotly
+    # Debug: Check the comparison DataFrame
+    st.write("Comparison sample data:", comparison.head())
+
+    # Plot actual vs predicted prices for the test period using Plotly
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=comparison['ds'],
